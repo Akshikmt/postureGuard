@@ -89,7 +89,7 @@ With the virtual environment activated, install the initial dependency:
 pip install -r requirements.txt
 ```
 
-### 4. Run the Webcam Test
+### 4. Run the Webcam Feed Test
 
 Test camera connectivity and verify the video stream:
 
@@ -97,5 +97,11 @@ Test camera connectivity and verify the video stream:
 python src/camera.py
 ```
 
-- A window titled **"Posture Detection - Camera Feed"** should appear displaying your live video feed.
+*Or run directly without activating the virtual environment (Windows):*
+```powershell
+.\venv\Scripts\python.exe src/camera.py
+```
+
+- A window titled **"PostureGuard - Camera Feed"** will appear displaying your live video feed.
 - Press <kbd>q</kbd> while focusing on the video window to safely exit and release the webcam.
+
