@@ -40,10 +40,12 @@ postureGuard/
 ├── models/            # Saved trained model artifacts (future stages)
 ├── notebooks/         # Exploratory data analysis & model prototyping (future stages)
 ├── src/
-│   └── camera.py      # Basic camera test & capture utility
+│   ├── __init__.py
+│   ├── camera.py          # Basic camera test & capture utility
+│   └── pose_detection.py  # Real-time MediaPipe pose detection & landmark visualizer
 ├── tests/             # Unit and integration tests
 ├── venv/              # Python virtual environment
-├── requirements.txt   # Project dependencies
+├── requirements.txt   # Project dependencies (OpenCV, MediaPipe)
 └── README.md          # Project documentation
 ```
 
@@ -104,4 +106,23 @@ python src/camera.py
 
 - A window titled **"PostureGuard - Camera Feed"** will appear displaying your live video feed.
 - Press <kbd>q</kbd> while focusing on the video window to safely exit and release the webcam.
+
+### 5. Run Real-Time Pose Detection
+
+Detect body landmarks (33 pose points) and skeleton connections in real time:
+
+```bash
+python src/pose_detection.py
+```
+
+*Or run directly without activating the virtual environment (Windows):*
+```powershell
+.\venv\Scripts\python.exe src/pose_detection.py
+```
+
+- A window titled **"PostureGuard - Pose Detection"** will open.
+- The system will overlay detected landmarks (green dots) and the skeleton (connecting lines).
+- If no person is visible, it displays **"No Person Detected"** without crashing.
+- Press <kbd>q</kbd> while focusing on the video window to safely exit.
+
 
