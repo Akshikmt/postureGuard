@@ -1,0 +1,289 @@
+{
+  "timestamp": "2026-10-21T22:16:09.979753",
+  "task": "Task 9: Fix and Validate Forward-Lean Detection",
+  "audit": {
+    "pipeline_stages": {
+      "features_py_calculation": true,
+      "collect_data_py_saved": false,
+      "raw_csv_persisted": false,
+      "clean_csv_prepared": false,
+      "deployed_model_features": [
+        "shoulder_tilt_deg",
+        "neck_angle_deg",
+        "shoulder_distance_raw"
+      ],
+      "deployed_model_uses_ratio": false
+    },
+    "raw_csv_details": {
+      "path": "D:\\Akshitakumawat\\posture\\postureGuard\\data\\posture_data.csv",
+      "columns": [
+        "shoulder_distance_raw",
+        "hip_distance_raw",
+        "torso_length",
+        "shoulder_distance_norm",
+        "hip_distance_norm",
+        "shoulder_tilt_deg",
+        "torso_angle_deg",
+        "neck_angle_deg",
+        "left_hip_angle_deg",
+        "right_hip_angle_deg",
+        "left_knee_angle_deg",
+        "right_knee_angle_deg",
+        "label",
+        "timestamp",
+        "session_id"
+      ],
+      "total_rows": 396,
+      "ratio_column_present": false,
+      "valid_measured_ratio_samples": 0,
+      "session_breakdown": {
+        "session_20261021_195509": {
+          "correct": 25,
+          "slouching": 24,
+          "leaning_left": 23,
+          "leaning_right": 24,
+          "leaning_forward": 23
+        },
+        "session_20261021_201127": {
+          "correct": 24,
+          "slouching": 25,
+          "leaning_left": 25,
+          "leaning_right": 51,
+          "leaning_forward": 26
+        },
+        "session_20261021_210838": {
+          "correct": 25,
+          "slouching": 26,
+          "leaning_left": 26,
+          "leaning_right": 24,
+          "leaning_forward": 25
+        }
+      }
+    },
+    "sample_counts_by_session_and_class": {
+      "session_20261021_195509": {
+        "correct": 25,
+        "slouching": 24,
+        "leaning_left": 23,
+        "leaning_right": 24,
+        "leaning_forward": 23
+      },
+      "session_20261021_201127": {
+        "correct": 24,
+        "slouching": 25,
+        "leaning_left": 25,
+        "leaning_right": 51,
+        "leaning_forward": 26
+      },
+      "session_20261021_210838": {
+        "correct": 25,
+        "slouching": 26,
+        "leaning_left": 26,
+        "leaning_right": 24,
+        "leaning_forward": 25
+      }
+    }
+  },
+  "geometric_analysis": {
+    "upright_standard_50cm": {
+      "posture_label": "correct",
+      "description": "Sitting upright at normal laptop distance (~50 cm).",
+      "projected_shoulder_width_px": 480.0,
+      "projected_ear_distance_px": 180.0,
+      "calculated_shoulder_to_ear_ratio": 2.6667
+    },
+    "upright_farther_70cm": {
+      "posture_label": "correct",
+      "description": "Sitting upright further back from laptop (~70 cm, natural distance shift).",
+      "projected_shoulder_width_px": 342.86,
+      "projected_ear_distance_px": 128.57,
+      "calculated_shoulder_to_ear_ratio": 2.6667
+    },
+    "forward_lean_full_body_35cm": {
+      "posture_label": "leaning_forward",
+      "description": "Leaning torso and head forward together from hips toward screen (~35 cm).",
+      "projected_shoulder_width_px": 685.71,
+      "projected_ear_distance_px": 257.14,
+      "calculated_shoulder_to_ear_ratio": 2.6667
+    },
+    "forward_head_craning": {
+      "posture_label": "leaning_forward_craning",
+      "description": "Head craned forward toward screen while shoulders remain back against chair.",
+      "projected_shoulder_width_px": 480.0,
+      "projected_ear_distance_px": 236.84,
+      "calculated_shoulder_to_ear_ratio": 2.0267
+    },
+    "slouching_shoulders_hunched": {
+      "posture_label": "slouching",
+      "description": "Slouched back into chair with shoulders rounded forward (narrowing apparent width).",
+      "projected_shoulder_width_px": 370.91,
+      "projected_ear_distance_px": 173.08,
+      "calculated_shoulder_to_ear_ratio": 2.143
+    }
+  },
+  "model_comparison": {
+    "baseline": {
+      "features": [
+        "shoulder_tilt_deg",
+        "neck_angle_deg",
+        "shoulder_distance_raw"
+      ],
+      "test_accuracy": 0.8013,
+      "macro_f1": 0.7182,
+      "confusion_matrix": [
+        [
+          24,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          25,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          25,
+          0,
+          0
+        ],
+        [
+          2,
+          0,
+          0,
+          47,
+          2
+        ],
+        [
+          26,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "per_class": {
+        "correct": {
+          "precision": 0.4615,
+          "recall": 1.0,
+          "f1_score": 0.6316,
+          "support": 24.0
+        },
+        "slouching": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 25.0
+        },
+        "leaning_left": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 25.0
+        },
+        "leaning_right": {
+          "precision": 1.0,
+          "recall": 0.9216,
+          "f1_score": 0.9592,
+          "support": 51.0
+        },
+        "leaning_forward": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1_score": 0.0,
+          "support": 26.0
+        }
+      }
+    },
+    "candidate": {
+      "features": [
+        "shoulder_tilt_deg",
+        "neck_angle_deg",
+        "shoulder_distance_raw",
+        "shoulder_to_ear_ratio"
+      ],
+      "test_accuracy": 0.7417,
+      "macro_f1": 0.6827,
+      "confusion_matrix": [
+        [
+          15,
+          0,
+          0,
+          0,
+          9
+        ],
+        [
+          0,
+          25,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          25,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          47,
+          3
+        ],
+        [
+          26,
+          0,
+          0,
+          0,
+          0
+        ]
+      ],
+      "per_class": {
+        "correct": {
+          "precision": 0.3571,
+          "recall": 0.625,
+          "f1_score": 0.4545,
+          "support": 24.0
+        },
+        "slouching": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 25.0
+        },
+        "leaning_left": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 25.0
+        },
+        "leaning_right": {
+          "precision": 1.0,
+          "recall": 0.9216,
+          "f1_score": 0.9592,
+          "support": 51.0
+        },
+        "leaning_forward": {
+          "precision": 0.0,
+          "recall": 0.0,
+          "f1_score": 0.0,
+          "support": 26.0
+        }
+      }
+    }
+  },
+  "conclusions": {
+    "forward_lean_improved": false,
+    "why_ratio_fails_to_separate_forward_lean": "When a user leans forward from the hips toward the laptop screen, their head and shoulders move closer to the camera together. Because perspective projection scales both shoulder width and ear distance by the exact same distance magnification factor (k), the ratio (k * shoulder) / (k * ear) cancels out the distance shift. Consequently, the shoulder-to-ear ratio remains nearly identical (~2.67) between sitting upright and leaning forward.",
+    "active_model_artifact": "models/posture_model.joblib (Preserved, 80.13% test accuracy)",
+    "candidate_model_artifact": "models/candidate_posture_model.joblib (Saved for inspection)"
+  }
+}

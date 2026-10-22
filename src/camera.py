@@ -15,15 +15,21 @@ def main():
     camera_index = 0
     print(f"Attempting to open camera (index {camera_index})...")
 
-    # Initialize video capture with the default camera
-    cap = cv2.VideoCapture(camera_index)
+    # Initialize video capture with robust DirectShow backend on Windows (avoids MSMF/obsensor index errors)
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        cap = cv2.VideoCapture(1)
 
     # Check if the camera was successfully opened
     if not cap.isOpened():
         print("=" * 60)
         print("Error: Could not access the webcam.")
         print("Troubleshooting tips:")
-        print(" 1. Check if another application (Zoom, Teams, etc.) is using the camera.")
+        print(" 1. Check if another application (Zoom, Teams, Chrome, Camera) is using the camera.")
         print(" 2. Ensure camera privacy settings in Windows allow desktop apps to access the camera.")
         print(" 3. Verify that the camera is properly plugged in.")
         print("=" * 60)

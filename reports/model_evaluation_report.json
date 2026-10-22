@@ -1,0 +1,327 @@
+{
+  "timestamp": "2026-10-22T13:42:18.327660",
+  "task": "Task 6: PostureGuard ML Classifier Comparison",
+  "features_used": [
+    "shoulder_tilt_deg",
+    "neck_angle_deg"
+  ],
+  "target_classes": [
+    "correct",
+    "slouching",
+    "leaning_left",
+    "leaning_right"
+  ],
+  "best_model": "DecisionTree",
+  "split_metadata": {
+    "train_sessions": [
+      "session_20261021_195509",
+      "session_20261021_210838"
+    ],
+    "test_sessions": [
+      "session_20261021_201127"
+    ],
+    "train_sample_count": 119,
+    "test_sample_count": 151,
+    "leakage_assessment": "Session-aware split generated successfully. No frames from the same recording session appear in both training and test partitions, preventing temporal data leakage."
+  },
+  "model_results": {
+    "DecisionTree": {
+      "model_name": "DecisionTree",
+      "train_accuracy": 1.0,
+      "test_accuracy": 0.976,
+      "macro_f1": 0.9777,
+      "weighted_f1": 0.9763,
+      "per_class_metrics": {
+        "correct": {
+          "precision": 0.8889,
+          "recall": 1.0,
+          "f1_score": 0.9412,
+          "support": 24
+        },
+        "slouching": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 25
+        },
+        "leaning_left": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 25
+        },
+        "leaning_right": {
+          "precision": 1.0,
+          "recall": 0.9412,
+          "f1_score": 0.9697,
+          "support": 51
+        }
+      },
+      "confusion_matrix": [
+        [
+          24,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          25,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          25,
+          0
+        ],
+        [
+          3,
+          0,
+          0,
+          48
+        ]
+      ],
+      "class_labels": [
+        "correct",
+        "slouching",
+        "leaning_left",
+        "leaning_right"
+      ],
+      "confusions": [
+        {
+          "actual": "leaning_right",
+          "predicted": "correct",
+          "count": 3
+        }
+      ]
+    },
+    "RandomForest": {
+      "model_name": "RandomForest",
+      "train_accuracy": 1.0,
+      "test_accuracy": 0.968,
+      "macro_f1": 0.9706,
+      "weighted_f1": 0.9686,
+      "per_class_metrics": {
+        "correct": {
+          "precision": 0.8571,
+          "recall": 1.0,
+          "f1_score": 0.9231,
+          "support": 24
+        },
+        "slouching": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 25
+        },
+        "leaning_left": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 25
+        },
+        "leaning_right": {
+          "precision": 1.0,
+          "recall": 0.9216,
+          "f1_score": 0.9592,
+          "support": 51
+        }
+      },
+      "confusion_matrix": [
+        [
+          24,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          25,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          25,
+          0
+        ],
+        [
+          4,
+          0,
+          0,
+          47
+        ]
+      ],
+      "class_labels": [
+        "correct",
+        "slouching",
+        "leaning_left",
+        "leaning_right"
+      ],
+      "confusions": [
+        {
+          "actual": "leaning_right",
+          "predicted": "correct",
+          "count": 4
+        }
+      ]
+    },
+    "SVM (RBF)": {
+      "model_name": "SVM (RBF)",
+      "train_accuracy": 0.8274,
+      "test_accuracy": 0.832,
+      "macro_f1": 0.7764,
+      "weighted_f1": 0.8174,
+      "per_class_metrics": {
+        "correct": {
+          "precision": 0.6364,
+          "recall": 0.2917,
+          "f1_score": 0.4,
+          "support": 24
+        },
+        "slouching": {
+          "precision": 0.5952,
+          "recall": 1.0,
+          "f1_score": 0.7463,
+          "support": 25
+        },
+        "leaning_left": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 25
+        },
+        "leaning_right": {
+          "precision": 1.0,
+          "recall": 0.9216,
+          "f1_score": 0.9592,
+          "support": 51
+        }
+      },
+      "confusion_matrix": [
+        [
+          7,
+          17,
+          0,
+          0
+        ],
+        [
+          0,
+          25,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          25,
+          0
+        ],
+        [
+          4,
+          0,
+          0,
+          47
+        ]
+      ],
+      "class_labels": [
+        "correct",
+        "slouching",
+        "leaning_left",
+        "leaning_right"
+      ],
+      "confusions": [
+        {
+          "actual": "correct",
+          "predicted": "slouching",
+          "count": 17
+        },
+        {
+          "actual": "leaning_right",
+          "predicted": "correct",
+          "count": 4
+        }
+      ]
+    },
+    "LogisticRegression": {
+      "model_name": "LogisticRegression",
+      "train_accuracy": 0.8122,
+      "test_accuracy": 0.848,
+      "macro_f1": 0.8037,
+      "weighted_f1": 0.8386,
+      "per_class_metrics": {
+        "correct": {
+          "precision": 0.6923,
+          "recall": 0.375,
+          "f1_score": 0.4865,
+          "support": 24
+        },
+        "slouching": {
+          "precision": 0.625,
+          "recall": 1.0,
+          "f1_score": 0.7692,
+          "support": 25
+        },
+        "leaning_left": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1_score": 1.0,
+          "support": 25
+        },
+        "leaning_right": {
+          "precision": 1.0,
+          "recall": 0.9216,
+          "f1_score": 0.9592,
+          "support": 51
+        }
+      },
+      "confusion_matrix": [
+        [
+          9,
+          15,
+          0,
+          0
+        ],
+        [
+          0,
+          25,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          25,
+          0
+        ],
+        [
+          4,
+          0,
+          0,
+          47
+        ]
+      ],
+      "class_labels": [
+        "correct",
+        "slouching",
+        "leaning_left",
+        "leaning_right"
+      ],
+      "confusions": [
+        {
+          "actual": "correct",
+          "predicted": "slouching",
+          "count": 15
+        },
+        {
+          "actual": "leaning_right",
+          "predicted": "correct",
+          "count": 4
+        }
+      ]
+    }
+  }
+}
