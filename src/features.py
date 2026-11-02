@@ -229,28 +229,55 @@ def calculate_neck_angle(
 def calculate_head_to_shoulder_ratio(
     nose: Optional[LandmarkPoint],
     left_shoulder: Optional[LandmarkPoint],
-    right_shoulder: Optional[LandmarkPoint]
+    right_shoulder: Optional[LandmarkPoint],
+    min_visibility: float = 0.40
 ) -> Optional[float]:
     """
     Computes the scale- and camera-distance-invariant ratio of vertical head
     elevation to horizontal shoulder width:
-        ratio = (mid_shoulder.y - nose.y) / shoulder_distance
+        ratio = (mid_shoulder.y - nose.y) / shoulder_width
 
     In standard normalized image space, shoulder y > nose y when head is above
-    shoulders. When sitting upright, this ratio is high (~0.45 to ~0.65).
-    When slouching back or hunching, head elevation drops (~0.20 to ~0.35).
-    Returns None if any required landmark is missing or shoulder width < 1e-4.
+    shoulders.
+    
+    Validation & Boundary Rules:
+    - nose, left_shoulder, right_shoulder must be non-None with visibility >= min_visibility.
+    - All coordinates and visibility values must be finite (not NaN or Inf).
+    - shoulder_width must be strictly positive (> 1e-4).
+    - Head elevation (mid_shoulder.y - nose.y) must be strictly positive (> 0.0),
+      meaning head is elevated above the shoulder midpoint.
+    - Returns None if any validation check fails.
     """
     if nose is None or left_shoulder is None or right_shoulder is None:
         return None
+
+    # Finite coordinates and visibility validation
+    for pt in (nose, left_shoulder, right_shoulder):
+        if (
+            math.isnan(pt.x) or math.isnan(pt.y) or math.isnan(pt.z) or math.isnan(pt.visibility) or
+            math.isinf(pt.x) or math.isinf(pt.y) or math.isinf(pt.z) or math.isinf(pt.visibility)
+        ):
+            return None
+        if pt.visibility < min_visibility:
+            return None
+
     mid_sh = get_midpoint(left_shoulder, right_shoulder)
     if mid_sh is None:
         return None
+
     sh_dist = euclidean_distance_2d(left_shoulder, right_shoulder)
-    if sh_dist is None or sh_dist < 1e-4:
+    if sh_dist is None or sh_dist <= 1e-4:
         return None
+
     head_elevation = mid_sh.y - nose.y
-    return round(head_elevation / sh_dist, 4)
+    if head_elevation <= 0.0:
+        return None
+
+    ratio = head_elevation / sh_dist
+    if math.isnan(ratio) or math.isinf(ratio):
+        return None
+
+    return round(ratio, 4)
 
 
 def calculate_head_z_distance(

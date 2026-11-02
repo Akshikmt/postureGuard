@@ -1,0 +1,74 @@
+{
+  "dataset_name": "PostureGuard Hybrid Dataset (Phase 1)",
+  "created_at": "2026-10-31",
+  "target_classes": [
+    "correct",
+    "slouching",
+    "leaning_left",
+    "leaning_right"
+  ],
+  "features_available": [
+    "calibrated_tilt_deg",
+    "neck_angle_deg"
+  ],
+  "feature_compatibility_audit": {
+    "shoulder_tilt_deg": "Identical atan2(dy, dx) formula. MultiPosture camera roll offset (+9.59 deg) calibrated.",
+    "neck_angle_deg": "Identical lateral head deviation formula atan2(|dx|, -dy).",
+    "head_to_shoulder_ratio": "NOT AVAILABLE in PostureGuard historical data. Raw nose/shoulder coordinates were not stored in posture_data.csv. Per project integrity guidelines, head_to_shoulder_ratio was NOT fabricated or synthetic."
+  },
+  "evaluation_scope_documentation": {
+    "unseen_participants": "Tested for correct, leaning_left, and leaning_right via MultiPosture test subjects ['10', '12', '13'].",
+    "unseen_sessions": "Tested for slouching via PostureGuard Session 2 (same participant, unseen recording session).",
+    "cross_participant_generalization_warning": "Slouching is tested ONLY on an unseen session of the SINGLE PostureGuard participant. This evaluation DOES NOT measure slouching generalization across different individuals."
+  },
+  "partitions": {
+    "train": {
+      "total_samples": 2084,
+      "multiposture_participants": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "11"
+      ],
+      "multiposture_samples": 2034,
+      "postureguard_sessions": [
+        "session_20261021_195509",
+        "session_20261021_210838"
+      ],
+      "postureguard_slouch_samples": 50,
+      "class_distribution": {
+        "correct": 1374,
+        "slouching": 50,
+        "leaning_left": 330,
+        "leaning_right": 330
+      }
+    },
+    "test": {
+      "total_samples": 446,
+      "multiposture_participants": [
+        "10",
+        "12",
+        "13"
+      ],
+      "multiposture_samples": 421,
+      "postureguard_sessions": [
+        "session_20261021_201127"
+      ],
+      "postureguard_slouch_samples": 25,
+      "class_distribution": {
+        "correct": 241,
+        "slouching": 25,
+        "leaning_left": 90,
+        "leaning_right": 90
+      }
+    }
+  },
+  "duplicate_sample_count": 0,
+  "leakage_verification": "PASSED (disjoint participant and session sets)."
+}

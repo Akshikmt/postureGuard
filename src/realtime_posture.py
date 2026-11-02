@@ -117,10 +117,20 @@ class PosturePredictor:
     """
 
     def __init__(self, model_path: Optional[Path] = None):
-        self.model_path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
-        if not self.model_path.exists():
-            raise FileNotFoundError(f"Posture model artifact not found at: {self.model_path}")
+        target_path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
+        if not target_path.exists():
+            # Try resolving relative to PROJECT_ROOT or inside PROJECT_ROOT/models
+            if (PROJECT_ROOT / target_path).exists():
+                target_path = PROJECT_ROOT / target_path
+            elif (PROJECT_ROOT / "models" / target_path.name).exists():
+                target_path = PROJECT_ROOT / "models" / target_path.name
+            else:
+                raise FileNotFoundError(
+                    f"Posture model artifact not found at: {target_path} "
+                    f"(also checked in {PROJECT_ROOT / target_path} and {PROJECT_ROOT / 'models' / target_path.name})"
+                )
 
+        self.model_path = target_path
         artifact = joblib.load(self.model_path)
         if not isinstance(artifact, dict) or "model" not in artifact:
             raise ValueError(f"Invalid model bundle format in {self.model_path}. Expected dict with 'model'.")
@@ -990,14 +1000,25 @@ def draw_postureguard_hud(
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="PostureGuard Real-Time Sitting Posture Detection")
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=str(DEFAULT_MODEL_PATH),
+        help="Path to posture model bundle (.joblib). Defaults to active posture_model.joblib."
+    )
+    args = parser.parse_args()
+    model_path = Path(args.model)
+
     print("=" * 72)
-    print("PostureGuard Real-Time Webcam Detection (4-Class Robust Mode)")
+    print("PostureGuard Real-Time Webcam Detection (Posture Monitoring Mode)")
     print("=" * 72)
 
-    # Step 1: Load Active Posture Model
+    # Step 1: Load Posture Model
     try:
-        predictor = PosturePredictor(DEFAULT_MODEL_PATH)
-        print(f"Model loaded successfully from: {DEFAULT_MODEL_PATH}")
+        predictor = PosturePredictor(model_path)
+        print(f"Model loaded successfully from: {model_path}")
         print(f"Required features ({len(predictor.feature_names)}): {predictor.feature_names}")
         print(f"Target classes   ({len(predictor.classes)}): {predictor.classes}")
     except Exception as e:
