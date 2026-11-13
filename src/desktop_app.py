@@ -400,6 +400,14 @@ class PostureGuardApp:
         self.root.resizable(False, False)
         self.root.configure(bg="#1E1E2E")
 
+        # Set window icon
+        icon_path = PROJECT_ROOT / "posture_icon.ico"
+        if icon_path.exists():
+            try:
+                self.root.iconbitmap(str(icon_path))
+            except Exception:
+                pass
+
         self.event_queue = queue.Queue()
         self.worker = PostureMonitorWorker(self.event_queue)
         self.popup = WarningPopup(self.root)
