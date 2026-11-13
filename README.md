@@ -51,10 +51,6 @@ postureGuard/
 │   ├── pose_detection.py             # MediaPipe Pose solution wrapper
 │   ├── realtime_posture.py           # Real-time webcam monitor with HUD, calibration, and hierarchical slouching detection
 │   └── train_model.py                # Unified model training & evaluation pipeline
-├── run_desktop.py                   # Desktop application launcher
-├── Install_PostureGuard.bat         # Automated one-click Windows installer & startup setup
-├── Start_PostureGuard.vbs           # Silent background runner (no terminal window)
-├── build_exe.py                     # Standalone PyInstaller build script
 ├── requirements.txt                 # Dependencies (opencv, mediapipe, scikit-learn, joblib, pystray, pillow)
 └── README.md                        # Documentation
 ```
@@ -63,18 +59,18 @@ postureGuard/
 
 ## 🚀 Quick Start
 
-### 🖥️ Option A: Run Silent Desktop Application (Recommended)
+### 🖥️ Option A: Run Standalone Desktop Executable (.exe)
 
-1. **One-Click Installation:**
-   Double-click [`Install_PostureGuard.bat`](file:///d:/Akshitakumawat/posture/postureGuard/Install_PostureGuard.bat).  
-   *It installs requirements, registers PostureGuard in Windows Startup, and launches the monitor.*
+1. Simply launch the standalone portable executable:
+   ```text
+   dist/PostureGuard_Desktop.exe
+   ```
+   *(Self-contained; no Python, libraries, or terminal required).*
 
-2. **Manual Launch:**
-   - Double-click [`Start_PostureGuard.vbs`](file:///d:/Akshitakumawat/posture/postureGuard/Start_PostureGuard.vbs) for silent background execution without any terminal window.
-   - Or launch with GUI window:
-     ```powershell
-     .\venv\Scripts\python run_desktop.py
-     ```
+2. **Or run from Python source:**
+   ```powershell
+   .\venv\Scripts\python src/desktop_app.py
+   ```
 
 #### Desktop App Features:
 - **100% Silent Background Operation:** Runs camera and posture analysis completely in memory; NO camera window or video feed is displayed on screen.

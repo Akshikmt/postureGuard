@@ -94,7 +94,7 @@ class StartupManager:
                     # Prefer pythonw.exe if available to avoid opening a console window on boot
                     pythonw_exe = Path(python_exe).parent / "pythonw.exe"
                     runner = str(pythonw_exe) if pythonw_exe.exists() else python_exe
-                    script_path = PROJECT_ROOT / "run_desktop.py"
+                    script_path = PROJECT_ROOT / "src" / "desktop_app.py"
                     cmd = f'"{runner}" "{script_path}" --background'
                 winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, cmd)
             else:
