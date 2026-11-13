@@ -23,15 +23,17 @@ print("=" * 60)
 args = [
     str(PROJECT_ROOT / "run_desktop.py"),
     "--name=PostureGuard",
+    "--onefile",
     "--windowed",
     "--noconsole",
     f"--add-data={MODEL_FILE};models",
     "--collect-all=mediapipe",
     "--collect-all=pystray",
     "--collect-all=PIL",
+    "--collect-all=sklearn",
     "--clean",
     "--noconfirm",
 ]
 
 PyInstaller.__main__.run(args)
-print("\nBuild complete! Executable is located in dist/PostureGuard/PostureGuard.exe")
+print("\nBuild complete! Standalone executable is located at dist/PostureGuard.exe")
