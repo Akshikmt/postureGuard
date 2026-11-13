@@ -39,6 +39,10 @@ import mediapipe as mp
 import numpy as np
 from PIL import Image, ImageDraw, ImageTk
 import pystray
+import sklearn
+import sklearn.ensemble
+import sklearn.tree
+import sklearn.utils
 
 # Project Root Resolution
 if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
