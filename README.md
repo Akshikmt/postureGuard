@@ -45,12 +45,17 @@ postureGuard/
 │   ├── __init__.py
 │   ├── camera.py                     # Webcam video capture utility
 │   ├── collect_data.py               # Posture dataset collector (guided collection, 37-column schema)
+│   ├── desktop_app.py                # Silent background desktop application & system tray
 │   ├── features.py                   # Geometric feature engineering (shoulder tilt, neck angle, head-to-shoulder ratio)
 │   ├── landmarks.py                  # MediaPipe landmark extraction & confidence validation
 │   ├── pose_detection.py             # MediaPipe Pose solution wrapper
 │   ├── realtime_posture.py           # Real-time webcam monitor with HUD, calibration, and hierarchical slouching detection
 │   └── train_model.py                # Unified model training & evaluation pipeline
-├── requirements.txt                 # Dependencies (opencv, mediapipe, scikit-learn, joblib)
+├── run_desktop.py                   # Desktop application launcher
+├── Install_PostureGuard.bat         # Automated one-click Windows installer & startup setup
+├── Start_PostureGuard.vbs           # Silent background runner (no terminal window)
+├── build_exe.py                     # Standalone PyInstaller build script
+├── requirements.txt                 # Dependencies (opencv, mediapipe, scikit-learn, joblib, pystray, pillow)
 └── README.md                        # Documentation
 ```
 
@@ -58,29 +63,46 @@ postureGuard/
 
 ## 🚀 Quick Start
 
-### 1. Environment Setup
-```powershell
-cd d:\Akshitakumawat\posture\postureGuard
-.\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-```
+### 🖥️ Option A: Run Silent Desktop Application (Recommended)
 
-### 2. Launch Real-Time Detection (Webcam)
+1. **One-Click Installation:**
+   Double-click [`Install_PostureGuard.bat`](file:///d:/Akshitakumawat/posture/postureGuard/Install_PostureGuard.bat).  
+   *It installs requirements, registers PostureGuard in Windows Startup, and launches the monitor.*
+
+2. **Manual Launch:**
+   - Double-click [`Start_PostureGuard.vbs`](file:///d:/Akshitakumawat/posture/postureGuard/Start_PostureGuard.vbs) for silent background execution without any terminal window.
+   - Or launch with GUI window:
+     ```powershell
+     .\venv\Scripts\python run_desktop.py
+     ```
+
+#### Desktop App Features:
+- **100% Silent Background Operation:** Runs camera and posture analysis completely in memory; NO camera window or video feed is displayed on screen.
+- **Smart Slouch Alert (>10s):** If the user remains in a slouched posture for more than 10 seconds continuously, a modern floating warning popup (`⚠️ Sit Straight!`) appears on top of all windows.
+- **Auto-Dismissal after Upright Recovery (5s):** As soon as the user sits upright for 5 continuous seconds, the warning popup vanishes automatically.
+- **Windows Startup Integration:** When enabled, PostureGuard runs automatically whenever your PC turns on.
+- **System Tray Controls:** Right-click the PostureGuard tray icon to pause/resume monitoring, calibrate your upright baseline, or exit.
+
+---
+
+### 📷 Option B: Run Diagnostic Webcam Monitor (With Video HUD)
 ```powershell
 .\venv\Scripts\python src/realtime_posture.py
 ```
-*Automatically loads `models/posture_model.joblib`.*
+*Displays live camera feed with visual pose skeleton, angle telemetry, and HUD overlay.*
 
 #### In-App Controls:
 - <kbd>q</kbd> — Safely quit and close camera window.
 - <kbd>c</kbd> — Trigger 3.0-second upright baseline calibration.
 - <kbd>r</kbd> — Reset calibration to default uncalibrated state.
 
-### 3. Train Posture Model
+---
+
+### ⚙️ Option C: Retrain Posture Model
 ```powershell
 .\venv\Scripts\python src/train_model.py
 ```
-*Trains classifiers on `data/posture_data.csv`, evaluates test metrics, saves `models/posture_model.joblib`, and generates reports in `reports/`.*
+*Trains classifiers on `data/posture_data.csv`, evaluates test metrics, and exports `models/posture_model.joblib`.*
 
 ---
 

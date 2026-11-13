@@ -26,3 +26,8 @@ data/yolo_dataset/
 
 # Posture Datasets (local only, do not track or push to GitHub)
 data/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
