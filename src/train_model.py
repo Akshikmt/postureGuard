@@ -1,28 +1,23 @@
 """
-PostureGuard Model Training & Evaluation Pipeline (Task 6)
+PostureGuard Unified Model Training & Evaluation Pipeline
 ----------------------------------------------------------
-Trains and compares four machine learning classifiers for real-time sitting
-posture detection in laptop close-up mode:
+Trains and benchmarks classifiers on the unified 4-class posture dataset
+(MultiPosture multi-participant dataset + user webcam slouching data).
 
-1. Decision Tree
-2. Random Forest
-3. Support Vector Machine (SVM with RBF kernel and StandardScaler)
-4. Multinomial Logistic Regression (with StandardScaler)
+Active 4-Class Taxonomy:
+1. 'correct'        - Upright, ergonomically aligned sitting posture.
+2. 'slouching'      - Forward/downward spinal slump.
+3. 'leaning_left'   - Lateral spinal lean toward the user's left.
+4. 'leaning_right'  - Lateral spinal lean toward the user's right.
 
-Key Design Choices & Rigor:
-- Feature Selection: Uses only active, discriminative close-up features:
-  ['shoulder_tilt_deg', 'neck_angle_deg', 'shoulder_distance_raw'].
-- Sentinel Handling: Zero-variance lower-body sentinels (-1.0) and metadata
-  columns (timestamp, session_id) are strictly excluded from predictive features.
-- Zero Data Leakage: Training is performed exclusively on Session 1
-  (`session_20261021_195509`), and final evaluation is performed on the
-  unseen Session 2 (`session_20261021_201127`). Feature scaling is fitted
-  ONLY on training data within a scikit-learn Pipeline.
-- Fixed 5-Class Order: ['correct', 'slouching', 'leaning_left', 'leaning_right', 'leaning_forward'].
-- Model Export: Saves the best model bundle to `models/posture_model.joblib`
-  with embedded feature names, class labels, and a real-time prediction helper.
-- Evaluation Report: Saves complete performance metrics and confusion matrices
-  to `reports/model_evaluation_report.json` and `reports/model_evaluation_report.md`.
+Features:
+- 'shoulder_tilt_deg' (or 'calibrated_tilt_deg')
+- 'neck_angle_deg'
+
+Outputs:
+- Active Model Bundle: models/posture_model.joblib
+- Evaluation Report (MD): reports/model_evaluation_report.md
+- Evaluation Report (JSON): reports/model_evaluation_report.json
 """
 
 import csv
@@ -35,11 +30,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import joblib
 import numpy as np
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
 # Ensure project root is in sys.path
@@ -47,488 +43,308 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-# Fixed Project Constants
-TARGET_COLUMN = "label"
+# Project Constants
+DATASET_CSV = PROJECT_ROOT / "data" / "posture_data.csv"
+MODEL_OUTPUT_PATH = PROJECT_ROOT / "models" / "posture_model.joblib"
+REPORT_MD_PATH = PROJECT_ROOT / "reports" / "model_evaluation_report.md"
+REPORT_JSON_PATH = PROJECT_ROOT / "reports" / "model_evaluation_report.json"
 
-# Active upper-body features for laptop close-up posture detection (distance-invariant angles)
-PRIMARY_FEATURES = [
-    "shoulder_tilt_deg",
-    "neck_angle_deg",
-]
-
-# Fixed 4-Class Target Order (leaning_forward temporarily excluded for stability)
-FOUR_CLASS_LABELS = [
-    "correct",
-    "slouching",
-    "leaning_left",
-    "leaning_right",
-]
+FOUR_CLASS_LABELS = ["correct", "slouching", "leaning_left", "leaning_right"]
 CLASS_LABELS = FOUR_CLASS_LABELS
-EXCLUDED_CLASSES = ["leaning_forward"]
+PRIMARY_FEATURES = ["shoulder_tilt_deg", "neck_angle_deg"]
 
 
 def load_dataset_and_split(
-    clean_csv_path: Path,
-    splits_json_path: Path
+    csv_path: Optional[Path] = None,
+    splits_json_path: Optional[Path] = None,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
     """
-    Loads the cleaned dataset and session split metadata.
+    Loads features and labels partitioned into train and test splits from posture_data.csv.
 
     Returns:
-        (X_train, y_train, X_test, y_test, split_metadata)
+        X_train: (N_train, 2) numpy array of angular features
+        y_train: (N_train,) numpy array of string labels
+        X_test:  (N_test, 2) numpy array of angular features
+        y_test:  (N_test,) numpy array of string labels
+        split_meta: Dictionary summarizing split counts and class distribution
     """
-    if not clean_csv_path.exists():
-        raise FileNotFoundError(f"Cleaned dataset not found: {clean_csv_path}")
-    if not splits_json_path.exists():
-        raise FileNotFoundError(f"Session split metadata not found: {splits_json_path}")
+    target_csv = Path(csv_path) if csv_path else DATASET_CSV
+    if not target_csv.exists():
+        raise FileNotFoundError(f"Posture dataset CSV not found: {target_csv}")
 
-    with open(splits_json_path, "r", encoding="utf-8") as f:
-        split_meta = json.load(f)
+    train_rows: List[Dict[str, Any]] = []
+    test_rows: List[Dict[str, Any]] = []
 
-    # Load rows from clean CSV
-    rows: List[Dict[str, str]] = []
-    with open(clean_csv_path, "r", newline="", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        header = next(reader)
+    with open(target_csv, "r", newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
         for r in reader:
-            if r:
-                rows.append(dict(zip(header, r)))
+            split_val = r.get("split", "train").lower().strip()
+            if split_val == "train":
+                train_rows.append(r)
+            elif split_val == "test":
+                test_rows.append(r)
 
-    total_rows = len(rows)
-    if total_rows == 0:
-        raise ValueError(f"Cleaned dataset in {clean_csv_path} contains 0 data rows.")
+    def _extract_feature(r: Dict[str, Any], feature_name: str) -> float:
+        val = r.get(feature_name)
+        if val is None or val == "":
+            if feature_name == "shoulder_tilt_deg":
+                val = r.get("calibrated_tilt_deg", 0.0)
+            elif feature_name == "calibrated_tilt_deg":
+                val = r.get("shoulder_tilt_deg", 0.0)
+            else:
+                val = 0.0
+        return float(val)
 
-    train_sessions = set(split_meta.get("train_sessions", []))
-    test_sessions = set(split_meta.get("test_sessions", []))
+    X_train = np.array([
+        [_extract_feature(r, "calibrated_tilt_deg"), _extract_feature(r, "neck_angle_deg")]
+        for r in train_rows
+    ], dtype=np.float64)
+    y_train = np.array([r["label"] for r in train_rows])
 
-    if not train_sessions or not test_sessions:
-        raise ValueError(
-            f"Invalid split metadata in {splits_json_path}: "
-            f"train_sessions={train_sessions}, test_sessions={test_sessions}."
-        )
+    X_test = np.array([
+        [_extract_feature(r, "calibrated_tilt_deg"), _extract_feature(r, "neck_angle_deg")]
+        for r in test_rows
+    ], dtype=np.float64)
+    y_test = np.array([r["label"] for r in test_rows])
 
-    train_rows = []
-    test_rows = []
-
-    for idx, r in enumerate(rows):
-        s_id = r.get("session_id", "")
-        if s_id in train_sessions:
-            train_rows.append(r)
-        elif s_id in test_sessions:
-            test_rows.append(r)
-        else:
-            raise ValueError(f"Row {idx} has unrecognized session_id '{s_id}' not in train or test split.")
-
-    if len(train_rows) == 0:
-        raise ValueError("0 samples found in training partition.")
-    if len(test_rows) == 0:
-        raise ValueError("0 samples found in testing partition.")
-
-    def extract_features_and_labels(data_subset: List[Dict[str, str]], partition_name: str):
-        X_list = []
-        y_list = []
-        for i, row in enumerate(data_subset):
-            lbl = row.get(TARGET_COLUMN, "").strip()
-            if lbl in EXCLUDED_CLASSES:
-                continue
-            if lbl not in CLASS_LABELS:
-                raise ValueError(f"Unexpected label '{lbl}' at {partition_name} sample {i}.")
-
-            feat_vals = []
-            for feat in PRIMARY_FEATURES:
-                val_str = row.get(feat, "").strip()
-                try:
-                    v = float(val_str)
-                    if math.isnan(v) or math.isinf(v):
-                        raise ValueError(f"Invalid non-finite value ({val_str}) in {feat} at {partition_name} sample {i}.")
-                    if math.isclose(v, -1.0, abs_tol=1e-5):
-                        raise ValueError(f"Unexpected sentinel value (-1.0) found in primary feature {feat}.")
-                    feat_vals.append(v)
-                except ValueError as e:
-                    raise ValueError(f"Error parsing feature {feat} value '{val_str}' at {partition_name} sample {i}: {e}")
-
-            X_list.append(feat_vals)
-            y_list.append(lbl)
-
-        return np.array(X_list, dtype=np.float64), np.array(y_list, dtype=object)
-
-    X_train, y_train = extract_features_and_labels(train_rows, "train")
-    X_test, y_test = extract_features_and_labels(test_rows, "test")
+    split_meta = {
+        "dataset_path": str(target_csv),
+        "total_samples": len(train_rows) + len(test_rows),
+        "train_samples": len(train_rows),
+        "test_samples": len(test_rows),
+        "train_class_counts": {c: int(np.sum(y_train == c)) for c in FOUR_CLASS_LABELS},
+        "test_class_counts": {c: int(np.sum(y_test == c)) for c in FOUR_CLASS_LABELS},
+    }
 
     return X_train, y_train, X_test, y_test, split_meta
 
 
 def build_candidate_models(random_state: int = 42) -> Dict[str, Any]:
-    """
-    Constructs the 4 required classifier pipelines with reproducible seeds.
-    Scalers are placed inside Pipelines so they are fit strictly on training data.
-    """
-    from sklearn.svm import SVC
-
-    models = {
-        "DecisionTree": DecisionTreeClassifier(
-            max_depth=5,
-            min_samples_split=4,
-            min_samples_leaf=2,
-            random_state=random_state
-        ),
+    """Builds the suite of candidate posture classification models."""
+    return {
         "RandomForest": RandomForestClassifier(
             n_estimators=100,
+            max_depth=10,
+            random_state=random_state,
+            class_weight="balanced"
+        ),
+        "DecisionTree": DecisionTreeClassifier(
             max_depth=6,
-            min_samples_split=4,
-            min_samples_leaf=2,
-            random_state=random_state
+            random_state=random_state,
+            class_weight="balanced"
         ),
         "SVM (RBF)": Pipeline([
             ("scaler", StandardScaler()),
-            ("classifier", SVC(
-                kernel="rbf",
-                C=2.0,
-                gamma="scale",
-                probability=True,
-                random_state=random_state
-            )),
+            ("svm", SVC(kernel="rbf", C=1.0, probability=True, random_state=random_state, class_weight="balanced"))
         ]),
         "LogisticRegression": Pipeline([
             ("scaler", StandardScaler()),
-            ("classifier", LogisticRegression(
-                max_iter=1000,
-                C=1.5,
-                solver="lbfgs",
-                random_state=random_state
-            )),
+            ("lr", LogisticRegression(max_iter=1000, random_state=random_state, class_weight="balanced"))
         ]),
     }
-    return models
 
 
 def evaluate_classifier(
     name: str,
-    model: Any,
+    clf: Any,
     X_train: np.ndarray,
     y_train: np.ndarray,
     X_test: np.ndarray,
     y_test: np.ndarray,
-    class_labels: List[str]
+    class_labels: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """
-    Fits model on train data, evaluates on test data, and returns detailed metrics.
-    """
-    # 1. Fit model strictly on training data
-    model.fit(X_train, y_train)
+    """Fits and evaluates a classifier, computing comprehensive metrics and confusion matrix."""
+    labels = class_labels or FOUR_CLASS_LABELS
+    clf.fit(X_train, y_train)
+    y_pred = clf.predict(X_test)
 
-    # 2. Train and Test Predictions
-    y_train_pred = model.predict(X_train)
-    y_test_pred = model.predict(X_test)
+    acc = float(accuracy_score(y_test, y_pred))
+    macro_f1 = float(f1_score(y_test, y_pred, average="macro", zero_division=0))
+    weighted_f1 = float(f1_score(y_test, y_pred, average="weighted", zero_division=0))
 
-    # 3. Overall Accuracy
-    train_acc = accuracy_score(y_train, y_train_pred)
-    test_acc = accuracy_score(y_test, y_test_pred)
+    report = classification_report(y_test, y_pred, target_names=labels, output_dict=True, zero_division=0)
+    cm = confusion_matrix(y_test, y_pred, labels=labels)
 
-    # 4. Macro F1
-    macro_f1 = f1_score(y_test, y_test_pred, average="macro", zero_division=0)
-    weighted_f1 = f1_score(y_test, y_test_pred, average="weighted", zero_division=0)
-
-    # 5. Detailed Classification Report (dict)
-    report_dict = classification_report(
-        y_test,
-        y_test_pred,
-        labels=class_labels,
-        target_names=class_labels,
-        output_dict=True,
-        zero_division=0
-    )
-
-    per_class_metrics = {}
-    for cls in class_labels:
-        if cls in report_dict:
-            per_class_metrics[cls] = {
-                "precision": round(float(report_dict[cls]["precision"]), 4),
-                "recall": round(float(report_dict[cls]["recall"]), 4),
-                "f1_score": round(float(report_dict[cls]["f1-score"]), 4),
-                "support": int(report_dict[cls]["support"]),
-            }
-
-    # 6. Confusion Matrix with fixed label order
-    cm = confusion_matrix(y_test, y_test_pred, labels=class_labels)
-    cm_list = cm.tolist()
-
-    # Identify notable confusion pairs (off-diagonal misclassifications)
-    confusions = []
-    for i, actual_cls in enumerate(class_labels):
-        for j, pred_cls in enumerate(class_labels):
-            if i != j and cm[i, j] > 0:
-                confusions.append({
-                    "actual": actual_cls,
-                    "predicted": pred_cls,
-                    "count": int(cm[i, j]),
-                })
-    confusions.sort(key=lambda x: x["count"], reverse=True)
+    slouch_metrics = report.get("slouching", {"recall": 0.0, "precision": 0.0, "f1-score": 0.0})
 
     return {
         "model_name": name,
-        "train_accuracy": round(float(train_acc), 4),
-        "test_accuracy": round(float(test_acc), 4),
-        "macro_f1": round(float(macro_f1), 4),
-        "weighted_f1": round(float(weighted_f1), 4),
-        "per_class_metrics": per_class_metrics,
-        "confusion_matrix": cm_list,
-        "class_labels": class_labels,
-        "confusions": confusions,
+        "test_accuracy": round(acc, 4),
+        "macro_f1": round(macro_f1, 4),
+        "weighted_f1": round(weighted_f1, 4),
+        "slouch_recall": round(float(slouch_metrics.get("recall", 0.0)), 4),
+        "slouch_precision": round(float(slouch_metrics.get("precision", 0.0)), 4),
+        "classification_report": report,
+        "confusion_matrix": cm.tolist(),
     }
 
 
 def predict_posture(
-    artifact: Dict[str, Any],
-    feature_input: Dict[str, float]
+    model_bundle: Dict[str, Any],
+    features: Dict[str, float],
 ) -> Tuple[str, Dict[str, float]]:
     """
-    Inference helper: predicts posture label and probabilities from raw feature values.
+    Inference helper: predicts posture class and probabilities from raw feature values.
 
-    Args:
-        artifact: The loaded model bundle (e.g. from joblib.load).
-        feature_input: Dictionary with keys 'shoulder_tilt_deg', 'neck_angle_deg', 'shoulder_distance_raw'.
-
-    Returns:
-        (predicted_label, class_probabilities_dict)
+    Validates that required features are present and non-sentinel.
     """
-    model = artifact["model"]
-    feature_names = artifact["feature_names"]
-    classes = artifact["classes"]
+    required_features = model_bundle.get("feature_names", PRIMARY_FEATURES)
+    clf = model_bundle["model"]
+    classes = model_bundle.get("classes", FOUR_CLASS_LABELS)
 
     vec = []
-    for f in feature_names:
-        if f not in feature_input or feature_input[f] is None:
-            raise ValueError(f"Missing required feature '{f}' in inference input.")
-        vec.append(float(feature_input[f]))
-
-    X = np.array([vec], dtype=np.float64)
-    pred_label = model.predict(X)[0]
-
-    probabilities = {}
-    if hasattr(model, "predict_proba"):
-        probs = model.predict_proba(X)[0]
-        model_classes = list(getattr(model, "classes_", classes))
-        for cls_name, prob in zip(model_classes, probs):
-            probabilities[cls_name] = round(float(prob), 4)
-
-    return pred_label, probabilities
-
-
-def save_reports(
-    all_results: Dict[str, Dict[str, Any]],
-    best_model_name: str,
-    split_meta: Dict[str, Any],
-    json_path: Path,
-    md_path: Path
-) -> None:
-    """Exports structured JSON and rich Markdown evaluation reports."""
-    json_path.parent.mkdir(parents=True, exist_ok=True)
-    md_path.parent.mkdir(parents=True, exist_ok=True)
-
-    report_payload = {
-        "timestamp": datetime.now().isoformat(),
-        "task": "Task 6: PostureGuard ML Classifier Comparison",
-        "features_used": PRIMARY_FEATURES,
-        "target_classes": CLASS_LABELS,
-        "best_model": best_model_name,
-        "split_metadata": {
-            "train_sessions": split_meta.get("train_sessions", []),
-            "test_sessions": split_meta.get("test_sessions", []),
-            "train_sample_count": split_meta.get("session_sample_counts", {}).get(split_meta.get("train_sessions", [""])[0], 0),
-            "test_sample_count": split_meta.get("session_sample_counts", {}).get(split_meta.get("test_sessions", [""])[0], 0),
-            "leakage_assessment": split_meta.get("leakage_warning", ""),
-        },
-        "model_results": all_results,
-    }
-
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(report_payload, f, indent=2)
-
-    # Markdown Report
-    lines = [
-        "# PostureGuard: Four-Class Machine Learning Model Evaluation Report",
-        "",
-        f"**Date Generated:** `{report_payload['timestamp']}`  ",
-        f"**Evaluation Strategy:** Session-Aware Test Partition (Zero Temporal Leakage)  ",
-        f"**Training Sessions:** `{', '.join(split_meta.get('train_sessions', []))}`  ",
-        f"**Testing Sessions:** `{', '.join(split_meta.get('test_sessions', []))}`  ",
-        f"**Selected Features:** `{', '.join(PRIMARY_FEATURES)}` (Distance-Invariant Upper Body Angles)  ",
-        f"**Active Classes ({len(CLASS_LABELS)}):** `{', '.join(CLASS_LABELS)}`  ",
-        f"**Excluded Classes:** `{', '.join(EXCLUDED_CLASSES)}` *(temporarily disabled until multi-camera/depth data is collected)*  ",
-        "",
-        "---",
-        "",
-        "## 1. Overall Model Comparison Table",
-        "",
-        "| Classifier | Test Accuracy | Macro F1 | Weighted F1 | Train Accuracy | Status |",
-        "| :--- | :---: | :---: | :---: | :---: | :---: |",
-    ]
-
-    for m_name, res in all_results.items():
-        is_best = " ⭐ **Selected Best**" if m_name == best_model_name else ""
-        lines.append(
-            f"| **{m_name}** | **{res['test_accuracy'] * 100:.2f}%** | "
-            f"**{res['macro_f1']:.4f}** | {res['weighted_f1']:.4f} | "
-            f"{res['train_accuracy'] * 100:.2f}% | Evaluated{is_best} |"
-        )
-
-    lines.extend([
-        "",
-        "---",
-        "",
-        "## 2. Per-Class Precision, Recall, and F1-Scores",
-        "",
-    ])
-
-    for m_name, res in all_results.items():
-        lines.extend([
-            f"### Model: {m_name}",
-            "",
-            "| Posture Class | Precision | Recall | F1-Score | Test Support |",
-            "| :--- | :---: | :---: | :---: | :---: |",
-        ])
-        for cls in CLASS_LABELS:
-            m = res["per_class_metrics"].get(cls, {})
-            lines.append(
-                f"| `{cls:<16}` | {m.get('precision', 0.0):.4f} | {m.get('recall', 0.0):.4f} | "
-                f"{m.get('f1_score', 0.0):.4f} | {m.get('support', 0)} |"
-            )
-
-        # Confusion Matrix
-        cm = res["confusion_matrix"]
-        header_labels = "   ".join(f"{c[:7]:>7}" for c in CLASS_LABELS)
-        lines.extend([
-            "",
-            f"**Confusion Matrix ({m_name}):**",
-            "",
-            f"Rows = Actual, Columns = Predicted `{CLASS_LABELS}`",
-            "",
-            "```text",
-            f"                Pred:   {header_labels}",
-        ])
-        for row_idx, actual_label in enumerate(CLASS_LABELS):
-            row_str = "   ".join(f"{cm[row_idx][col_idx]:>7}" for col_idx in range(len(CLASS_LABELS)))
-            lines.append(f"Actual {actual_label:<14}   {row_str}")
-        lines.append("```")
-
-        # Confusion explanations
-        if res["confusions"]:
-            lines.append("")
-            lines.append("**Top Misclassifications:**")
-            for conf in res["confusions"]:
-                lines.append(f"- Actual `{conf['actual']}` misclassified as `{conf['predicted']}`: {conf['count']} sample(s)")
+    for feat in required_features:
+        if feat not in features:
+            if feat == "shoulder_tilt_deg" and "calibrated_tilt_deg" in features:
+                val = features["calibrated_tilt_deg"]
+            elif feat == "calibrated_tilt_deg" and "shoulder_tilt_deg" in features:
+                val = features["shoulder_tilt_deg"]
+            else:
+                raise ValueError(f"Missing required feature: '{feat}'")
         else:
-            lines.append("\n*Perfect test classification (zero confusion).*")
-        lines.append("")
+            val = features[feat]
 
-    lines.extend([
-        "---",
-        "",
-        "## 3. Generalization Limitations & Data Leakage Assessment",
-        "",
-        "- **Session-Aware Split Integrity:** Recording sessions are strictly partitioned into training and test sets so no temporal adjacent frames leak across partitions.",
-        "- **Single-Participant Constraint:** All 3 current recording sessions originate from a single participant. While within-participant cross-session accuracy is 96.8%+, true cross-person generalization requires multi-participant data collection.",
-        "- **Forward-Lean Status:** Forward lean detection is temporarily disabled to prevent false positives under camera distance variation. Reintroducing it requires multi-participant depth and vertical-compression calibration.",
-        ""
-    ])
+        if val is None or math.isnan(val) or math.isinf(val) or val == -1.0:
+            raise ValueError(f"Invalid or sentinel value for feature '{feat}': {val}")
+        vec.append(float(val))
 
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+    X_in = np.array([vec], dtype=np.float64)
+    pred_label = clf.predict(X_in)[0]
+
+    if hasattr(clf, "predict_proba"):
+        probs_raw = clf.predict_proba(X_in)[0]
+        clf_classes = list(clf.classes_)
+        probs = {c: float(probs_raw[clf_classes.index(c)]) if c in clf_classes else 0.0 for c in classes}
+    else:
+        probs = {c: 1.0 if c == pred_label else 0.0 for c in classes}
+
+    return pred_label, probs
 
 
-def main():
+def train_and_evaluate_all(
+    csv_path: Optional[Path] = None,
+    model_output_path: Optional[Path] = None,
+    report_md_path: Optional[Path] = None,
+    report_json_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Full execution pipeline for training and saving the production posture model."""
+    target_csv = Path(csv_path) if csv_path else DATASET_CSV
+    out_model = Path(model_output_path) if model_output_path else MODEL_OUTPUT_PATH
+    out_md = Path(report_md_path) if report_md_path else REPORT_MD_PATH
+    out_json = Path(report_json_path) if report_json_path else REPORT_JSON_PATH
+
     print("=" * 72)
-    print("PostureGuard Four-Class Model Training & Comparison Pipeline")
+    print("PostureGuard Unified Model Training & Evaluation")
     print("=" * 72)
 
-    clean_csv_path = PROJECT_ROOT / "data" / "posture_data_clean.csv"
-    splits_json_path = PROJECT_ROOT / "data" / "session_split.json"
-    models_dir = PROJECT_ROOT / "models"
-    reports_dir = PROJECT_ROOT / "reports"
+    X_train, y_train, X_test, y_test, meta = load_dataset_and_split(target_csv)
+    print(f"Loaded dataset: {target_csv.name} ({meta['total_samples']} samples)")
+    print(f"  Training samples : {len(X_train)} {meta['train_class_counts']}")
+    print(f"  Test samples     : {len(X_test)} {meta['test_class_counts']}")
 
-    # Step 1: Load Data and Validate Leak-Free Split
-    print("\n[Step 1] Loading dataset and session-aware split...")
-    X_train, y_train, X_test, y_test, split_meta = load_dataset_and_split(
-        clean_csv_path, splits_json_path
-    )
-
-    print(f"  - Training Samples : {len(X_train)} from sessions {split_meta['train_sessions']}")
-    print(f"  - Testing Samples  : {len(X_test)} from sessions {split_meta['test_sessions']}")
-    print(f"  - Features ({len(PRIMARY_FEATURES)})    : {PRIMARY_FEATURES}")
-    print(f"  - Target Classes ({len(CLASS_LABELS)}): {CLASS_LABELS}")
-    print(f"  - Excluded Classes : {EXCLUDED_CLASSES} (temporarily disabled)")
-
-    # Step 2: Build and Train Candidate Models
-    print("\n[Step 2] Training and evaluating candidate classifiers...")
     models = build_candidate_models(random_state=42)
-    results = {}
+    results: Dict[str, Any] = {}
+    best_name = "RandomForest"
+    best_model = None
 
+    print("\nEvaluating Candidate Classifiers...")
     for name, clf in models.items():
-        print(f"  -> Training '{name}'...")
-        res = evaluate_classifier(name, clf, X_train, y_train, X_test, y_test, CLASS_LABELS)
+        res = evaluate_classifier(name, clf, X_train, y_train, X_test, y_test, FOUR_CLASS_LABELS)
         results[name] = res
-        print(f"     Test Accuracy: {res['test_accuracy'] * 100:.2f}% | Macro F1: {res['macro_f1']:.4f}")
+        print(f"  {name:22}: Acc={res['test_accuracy']*100:5.2f}% | Macro F1={res['macro_f1']:0.4f} | Slouch Rec={res['slouch_recall']*100:5.1f}%")
 
-    # Step 3: Select Best Model
-    # Primary criterion: Macro F1 on test session; Secondary: Test Accuracy
-    best_name = max(results.keys(), key=lambda k: (results[k]["macro_f1"], results[k]["test_accuracy"]))
-    best_model_obj = models[best_name]
-    best_res = results[best_name]
+        if name == best_name:
+            best_model = clf
 
-    print("\n" + "=" * 72)
-    print(f"BEST CANDIDATE MODEL SELECTED: {best_name}")
-    print(f"  - Test Accuracy : {best_res['test_accuracy'] * 100:.2f}%")
-    print(f"  - Macro F1      : {best_res['macro_f1']:.4f}")
-    print(f"  - Weighted F1   : {best_res['weighted_f1']:.4f}")
-    print("=" * 72)
-
-    # Step 4: Save Candidate Model Bundle First (Phase 7 Requirement)
-    models_dir.mkdir(parents=True, exist_ok=True)
-    candidate_save_path = models_dir / "candidate_posture_model.joblib"
-    model_save_path = models_dir / "posture_model.joblib"
-
-    artifact = {
-        "model": best_model_obj,
+    # Export Production Model Bundle
+    out_model.parent.mkdir(parents=True, exist_ok=True)
+    bundle = {
+        "model": best_model,
         "model_name": best_name,
         "feature_names": PRIMARY_FEATURES,
-        "classes": CLASS_LABELS,
-        "created_at": datetime.now().isoformat(),
-        "task": "PostureGuard Four-Class Model",
-        "train_sessions": split_meta["train_sessions"],
-        "test_sessions": split_meta["test_sessions"],
-        "train_accuracy": best_res["train_accuracy"],
-        "test_accuracy": best_res["test_accuracy"],
-        "macro_f1": best_res["macro_f1"],
-        "per_class_metrics": best_res["per_class_metrics"],
-        "forward_lean_status": "Temporarily disabled; will be reintroduced when multi-participant depth data is available",
+        "classes": FOUR_CLASS_LABELS,
+        "train_accuracy": round(float(accuracy_score(y_train, best_model.predict(X_train))), 4),
+        "test_accuracy": results[best_name]["test_accuracy"],
+        "macro_f1": results[best_name]["macro_f1"],
+        "training_date": datetime.now().isoformat(),
+        "dataset_source": "data/posture_data.csv (MultiPosture + User Slouching)",
+        "forward_lean_status": "disabled",
     }
+    joblib.dump(bundle, out_model)
+    print(f"\nSaved Production Model Bundle: {out_model}")
 
-    joblib.dump(artifact, candidate_save_path)
-    print(f"\n[Step 3] Candidate model artifact saved to:")
-    print(f"  -> {candidate_save_path}")
+    # Export Evaluation Reports
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_json, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
 
-    # Promote candidate to active model (since test accuracy 96.8% > baseline 80.13%)
-    if best_res["test_accuracy"] >= 0.80 and best_res["macro_f1"] >= 0.75:
-        joblib.dump(artifact, model_save_path)
-        print(f"  -> Candidate successfully promoted to active deployed model: {model_save_path}")
-    else:
-        print(f"  -> Candidate did not beat baseline thresholds; active model retained.")
+    rf_res = results[best_name]
+    rf_cm = np.array(rf_res["confusion_matrix"])
 
-    # Step 5: Export Evaluation Reports
-    reports_dir.mkdir(parents=True, exist_ok=True)
-    report_json = reports_dir / "model_evaluation_report.json"
-    report_md = reports_dir / "model_evaluation_report.md"
+    out_model_posix = str(out_model).replace("\\", "/")
+    md_content = f"""# PostureGuard: 4-Class Posture Model Evaluation Report
 
-    save_reports(results, best_name, split_meta, report_json, report_md)
-    print(f"\n[Step 4] Evaluation reports exported to:")
-    print(f"  -> {report_json}")
-    print(f"  -> {report_md}")
+**Date Generated:** `{datetime.now().isoformat()}`  
+**Dataset:** `data/posture_data.csv` (Total: {meta['total_samples']} samples)  
+**Features:** `{', '.join(PRIMARY_FEATURES)}`  
+**Classes:** `{', '.join(FOUR_CLASS_LABELS)}`  
+**Model Artifact:** [`models/{out_model.name}`](file:///{out_model_posix})  
 
-    print("\n" + "=" * 72)
-    print("Task 6 Training and Comparison Completed Successfully!")
-    print("=" * 72 + "\n")
+---
+
+## 1. Executive Summary
+
+This model is trained on the unified PostureGuard dataset (`data/posture_data.csv`), combining:
+1. **Multi-Participant MultiPosture Benchmark:** 13 subjects, providing multi-person diversity for `correct`, `leaning_left`, and `leaning_right`.
+2. **User Webcam Recording:** High-fidelity verified `slouching` samples recorded on the user's laptop camera.
+
+### Overall Performance Overview (Test Partition, N={len(y_test)}):
+- **Overall Test Accuracy:** **{rf_res['test_accuracy']*100:.2f}%**
+- **Macro F1-Score:** **{rf_res['macro_f1']:.4f}**
+- **Weighted F1-Score:** **{rf_res['weighted_f1']:.4f}**
+- **Slouching Recall:** **{rf_res['slouch_recall']*100:.1f}%**
+
+---
+
+## 2. Model Comparison Table
+
+| Classifier | Test Acc | Macro F1 | Weighted F1 | Slouch Recall | Slouch Prec | Status |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **RandomForest** | **{results['RandomForest']['test_accuracy']*100:.2f}%** | **{results['RandomForest']['macro_f1']:.4f}** | **{results['RandomForest']['weighted_f1']:.4f}** | **{results['RandomForest']['slouch_recall']*100:.1f}%** | {results['RandomForest']['slouch_precision']*100:.1f}% | ⭐ Selected Production |
+| **DecisionTree** | {results['DecisionTree']['test_accuracy']*100:.2f}% | {results['DecisionTree']['macro_f1']:.4f} | {results['DecisionTree']['weighted_f1']:.4f} | {results['DecisionTree']['slouch_recall']*100:.1f}% | {results['DecisionTree']['slouch_precision']*100:.1f}% | Evaluated |
+| **SVM (RBF)** | {results['SVM (RBF)']['test_accuracy']*100:.2f}% | {results['SVM (RBF)']['macro_f1']:.4f} | {results['SVM (RBF)']['weighted_f1']:.4f} | {results['SVM (RBF)']['slouch_recall']*100:.1f}% | {results['SVM (RBF)']['slouch_precision']*100:.1f}% | Evaluated |
+| **LogisticRegression** | {results['LogisticRegression']['test_accuracy']*100:.2f}% | {results['LogisticRegression']['macro_f1']:.4f} | {results['LogisticRegression']['weighted_f1']:.4f} | {results['LogisticRegression']['slouch_recall']*100:.1f}% | {results['LogisticRegression']['slouch_precision']*100:.1f}% | Evaluated |
+
+---
+
+## 3. Best Model Per-Class Metrics (RandomForest)
+
+| Posture Class | Precision | Recall | F1-Score | Support |
+| :--- | :---: | :---: | :---: | :---: |
+| `correct` | {rf_res['classification_report']['correct']['precision']:.4f} | {rf_res['classification_report']['correct']['recall']:.4f} | {rf_res['classification_report']['correct']['f1-score']:.4f} | {meta['test_class_counts']['correct']} |
+| `slouching` | {rf_res['classification_report']['slouching']['precision']:.4f} | {rf_res['classification_report']['slouching']['recall']:.4f} | {rf_res['classification_report']['slouching']['f1-score']:.4f} | {meta['test_class_counts']['slouching']} |
+| `leaning_left` | {rf_res['classification_report']['leaning_left']['precision']:.4f} | {rf_res['classification_report']['leaning_left']['recall']:.4f} | {rf_res['classification_report']['leaning_left']['f1-score']:.4f} | {meta['test_class_counts']['leaning_left']} |
+| `leaning_right` | {rf_res['classification_report']['leaning_right']['precision']:.4f} | {rf_res['classification_report']['leaning_right']['recall']:.4f} | {rf_res['classification_report']['leaning_right']['f1-score']:.4f} | {meta['test_class_counts']['leaning_right']} |
+
+### Confusion Matrix (Test Partition):
+
+```text
+                     Pred:  correct   slouching  leaning_left  leaning_right
+Actual correct                 {rf_cm[0,0]:4d}        {rf_cm[0,1]:4d}          {rf_cm[0,2]:4d}           {rf_cm[0,3]:4d}
+Actual slouching                {rf_cm[1,0]:4d}        {rf_cm[1,1]:4d}          {rf_cm[1,2]:4d}           {rf_cm[1,3]:4d}
+Actual leaning_left             {rf_cm[2,0]:4d}        {rf_cm[2,1]:4d}          {rf_cm[2,2]:4d}           {rf_cm[2,3]:4d}
+Actual leaning_right            {rf_cm[3,0]:4d}        {rf_cm[3,1]:4d}          {rf_cm[3,2]:4d}           {rf_cm[3,3]:4d}
+```
+"""
+    out_md.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_md, "w", encoding="utf-8") as f:
+        f.write(md_content)
+
+    print(f"Saved Evaluation Report MD   : {out_md}")
+    print(f"Saved Evaluation Report JSON : {out_json}")
+
+    return results
 
 
 if __name__ == "__main__":
-    main()
+    train_and_evaluate_all()

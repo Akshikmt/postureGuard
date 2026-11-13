@@ -13,3 +13,16 @@ __pycache__/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Model checkpoints & weights
+*.pt
+*.pth
+*.onnx
+runs/
+
+# Temporary image data
+data/raw_images/
+data/yolo_dataset/
+
+# Posture Datasets (local only, do not track or push to GitHub)
+data/

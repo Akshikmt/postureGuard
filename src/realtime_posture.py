@@ -159,6 +159,12 @@ class PosturePredictor:
         vec: List[float] = []
         for feat in self.feature_names:
             val = features.get(feat)
+            # Gracefully handle tilt naming aliases between training representations
+            if val is None and feat == "calibrated_tilt_deg":
+                val = features.get("shoulder_tilt_deg")
+            elif val is None and feat == "shoulder_tilt_deg":
+                val = features.get("calibrated_tilt_deg")
+
             if val is None:
                 return False, None, f"Missing required landmark: {feat}"
             try:
@@ -176,7 +182,8 @@ class PosturePredictor:
     def predict(
         self,
         features: Optional[Dict[str, Any]],
-        baseline_distance: Optional[float] = None
+        baseline_distance: Optional[float] = None,
+        baseline_head_ratio: Optional[float] = None,
     ) -> Tuple[Optional[str], Dict[str, float], str]:
         """
         Executes model inference on validated features.
@@ -185,6 +192,10 @@ class PosturePredictor:
         upright baseline_distance (D0 > 0) is provided, normalizes shoulder_distance_raw
         before vector assembly. When using distance-invariant angular features, runs
         directly on the validated angles.
+
+        When shoulders are level (|tilt| <= 10 deg) and head_to_shoulder_ratio is present,
+        evaluates sagittal head drop against upright baseline to accurately distinguish
+        slouching from upright sitting.
 
         Returns:
             (predicted_label, probability_dict, status_message)
@@ -224,6 +235,49 @@ class PosturePredictor:
                     probabilities[str(c_name)] = round(float(p), 4)
             except Exception:
                 probabilities = {}
+
+        # Biomechanical Sagittal Plane Analysis (Head-to-Shoulder Ratio):
+        # In front-facing webcams, slouching does not tilt shoulders laterally (|tilt| <= 10 deg).
+        # Slouching is characterized by vertical head drop relative to shoulder width.
+        tilt_val = features.get("shoulder_tilt_deg")
+        if tilt_val is None:
+            tilt_val = features.get("calibrated_tilt_deg")
+        head_ratio = features.get("head_to_shoulder_ratio")
+
+        if (
+            tilt_val is not None
+            and head_ratio is not None
+            and isinstance(head_ratio, (int, float))
+            and not (math.isnan(head_ratio) or math.isinf(head_ratio))
+            and head_ratio > 0.0
+            and abs(float(tilt_val)) <= 10.0
+        ):
+            # Dynamic threshold if user calibrated an upright baseline, else robust default 0.64
+            if baseline_head_ratio is not None and baseline_head_ratio > 0.35:
+                slouch_threshold = baseline_head_ratio * 0.90
+            else:
+                slouch_threshold = 0.64
+
+            if head_ratio < slouch_threshold:
+                pred_label = "slouching"
+                drop_margin = max(0.0, (slouch_threshold - head_ratio) / max(0.1, slouch_threshold))
+                conf = min(0.99, max(0.70, 0.70 + drop_margin * 1.5))
+                probabilities = {
+                    "correct": round(1.0 - conf, 4),
+                    "slouching": round(conf, 4),
+                    "leaning_left": 0.0,
+                    "leaning_right": 0.0,
+                }
+            else:
+                pred_label = "correct"
+                elev_margin = max(0.0, (head_ratio - slouch_threshold) / max(0.1, slouch_threshold))
+                conf = min(0.99, max(0.75, 0.75 + elev_margin * 2.0))
+                probabilities = {
+                    "correct": round(conf, 4),
+                    "slouching": round(1.0 - conf, 4),
+                    "leaning_left": 0.0,
+                    "leaning_right": 0.0,
+                }
 
         return pred_label, probabilities, "Prediction OK"
 
@@ -1002,11 +1056,14 @@ def draw_postureguard_hud(
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="PostureGuard Real-Time Sitting Posture Detection")
+
+    default_cli_model = str(DEFAULT_MODEL_PATH) if DEFAULT_MODEL_PATH.exists() else str(PROJECT_ROOT / "models" / "candidate_unified_model.joblib")
+
     parser.add_argument(
         "--model",
         type=str,
-        default=str(DEFAULT_MODEL_PATH),
-        help="Path to posture model bundle (.joblib). Defaults to active posture_model.joblib."
+        default=default_cli_model,
+        help="Path to posture model bundle (.joblib). Defaults to models/posture_model.joblib."
     )
     args = parser.parse_args()
     model_path = Path(args.model)
@@ -1106,9 +1163,18 @@ def main():
                         if (calibrator.state == UprightPostureCalibrator.STATE_CALIBRATED and calibrator.baseline)
                         else None
                     )
+                    calibrated_ratio0 = (
+                        calibrator.baseline.head_to_shoulder_ratio
+                        if (calibrator.state == UprightPostureCalibrator.STATE_CALIBRATED and calibrator.baseline)
+                        else None
+                    )
 
                     # Execute model prediction
-                    raw_pred, probs, status_msg = predictor.predict(features, baseline_distance=calibrated_d0)
+                    raw_pred, probs, status_msg = predictor.predict(
+                        features,
+                        baseline_distance=calibrated_d0,
+                        baseline_head_ratio=calibrated_ratio0
+                    )
                     stabilized_pred = hysteresis.update(raw_pred, probs)
 
                     # Periodic console diagnostic output (every ~1.5s)
