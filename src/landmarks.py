@@ -89,12 +89,19 @@ def extract_key_landmarks(
     landmarks_dict: Dict[str, Optional[LandmarkPoint]] = {}
 
     # If MediaPipe did not detect any person at all, return all None
-    if not results_pose_landmarks or not hasattr(results_pose_landmarks, "landmark"):
+    if not results_pose_landmarks:
         for name in POSTURE_LANDMARK_MAP:
             landmarks_dict[name] = None
         return landmarks_dict
 
-    raw_landmarks = results_pose_landmarks.landmark
+    if hasattr(results_pose_landmarks, "landmark"):
+        raw_landmarks = results_pose_landmarks.landmark
+    elif hasattr(results_pose_landmarks, "__getitem__") and hasattr(results_pose_landmarks, "__len__"):
+        raw_landmarks = results_pose_landmarks
+    else:
+        for name in POSTURE_LANDMARK_MAP:
+            landmarks_dict[name] = None
+        return landmarks_dict
 
     for name, enum_val in POSTURE_LANDMARK_MAP.items():
         idx = enum_val.value

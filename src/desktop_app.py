@@ -154,18 +154,32 @@ class PostureMonitorWorker(threading.Thread):
         """Resets calibration to uncalibrated default."""
         self.calibrator.cancel_or_reset()
 
-    def run(self):
-        # Open camera (DirectShow with fallback)
-        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(1)
+    @staticmethod
+    def _open_camera() -> Optional[cv2.VideoCapture]:
+        """Tries multiple backends and device indices to reliably open the camera."""
+        configs = [
+            (0, cv2.CAP_DSHOW),
+            (0, None),
+            (1, cv2.CAP_DSHOW),
+            (1, None),
+            (2, None),
+        ]
+        for idx, backend in configs:
+            try:
+                cap = cv2.VideoCapture(idx, backend) if backend is not None else cv2.VideoCapture(idx)
+                if cap.isOpened():
+                    ret, test_frame = cap.read()
+                    if ret and test_frame is not None and test_frame.size > 0:
+                        return cap
+                    cap.release()
+            except Exception:
+                pass
+        return None
 
-        if not cap.isOpened():
-            self.event_queue.put({"type": "error", "message": "Could not access webcam device."})
+    def run(self):
+        cap = self._open_camera()
+        if cap is None:
+            self.event_queue.put({"type": "error", "message": "Could not access webcam device. Please check permissions."})
             return
 
         mp_pose = mp.solutions.pose
@@ -195,7 +209,7 @@ class PostureMonitorWorker(threading.Thread):
                 probs: Dict[str, float] = {}
 
                 if detected:
-                    landmarks = extract_key_landmarks(results.pose_landmarks.landmark)
+                    landmarks = extract_key_landmarks(results.pose_landmarks, min_visibility=0.4)
                     features = extract_posture_features(landmarks) if landmarks else None
 
                     # Calibration tracking
