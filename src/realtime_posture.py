@@ -40,10 +40,6 @@ import cv2
 import joblib
 import mediapipe as mp
 import numpy as np
-import sklearn
-import sklearn.ensemble
-import sklearn.tree
-import sklearn.utils
 
 # Ensure project root is in sys.path
 if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):

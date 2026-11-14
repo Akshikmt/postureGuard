@@ -77,7 +77,7 @@ postureGuard/
 - **Smart Slouch Alert (>10s):** If the user remains in a slouched posture for more than 10 seconds continuously, a modern floating warning popup (`⚠️ Sit Straight!`) appears on top of all windows.
 - **Auto-Dismissal after Upright Recovery (5s):** As soon as the user sits upright for 5 continuous seconds, the warning popup vanishes automatically.
 - **Windows Startup Integration:** When enabled, PostureGuard runs automatically whenever your PC turns on.
-- **System Tray Controls:** Right-click the PostureGuard tray icon to pause/resume monitoring, calibrate your upright baseline, or exit.
+- **System Tray Controls:** Right-click the PostureGuard tray icon to pause/resume monitoring, open the window, or exit.
 
 ---
 

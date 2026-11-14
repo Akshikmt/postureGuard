@@ -25,7 +25,6 @@ import math
 import os
 from pathlib import Path
 import queue
-import socket
 import sys
 import threading
 import time
@@ -40,10 +39,6 @@ import mediapipe as mp
 import numpy as np
 from PIL import Image, ImageDraw, ImageTk
 import pystray
-import sklearn
-import sklearn.ensemble
-import sklearn.tree
-import sklearn.utils
 
 # Project Root Resolution
 if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
@@ -161,104 +156,47 @@ class PostureMonitorWorker(threading.Thread):
 
     @staticmethod
     def _open_camera() -> Optional[cv2.VideoCapture]:
-        """Tries multiple backends and device indices with warmup to reliably open camera."""
+        """Tries multiple backends and device indices to reliably open the camera."""
         configs = [
             (0, cv2.CAP_DSHOW),
-            (0, cv2.CAP_MSMF),
             (0, None),
             (1, cv2.CAP_DSHOW),
-            (1, cv2.CAP_MSMF),
             (1, None),
+            (2, None),
         ]
         for idx, backend in configs:
-            cap = None
             try:
                 cap = cv2.VideoCapture(idx, backend) if backend is not None else cv2.VideoCapture(idx)
-                if not cap.isOpened():
-                    if cap is not None:
-                        cap.release()
-                    continue
-
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-                # DirectShow and Windows camera drivers require 1-3 warmup frames
-                for _ in range(5):
+                if cap.isOpened():
                     ret, test_frame = cap.read()
                     if ret and test_frame is not None and test_frame.size > 0:
                         return cap
-                    time.sleep(0.04)
-
-                cap.release()
+                    cap.release()
             except Exception:
-                if cap is not None:
-                    try:
-                        cap.release()
-                    except Exception:
-                        pass
+                pass
         return None
 
     def run(self):
+        cap = self._open_camera()
+        if cap is None:
+            self.event_queue.put({"type": "error", "message": "Could not access webcam device. Please check permissions."})
+            return
+
         mp_pose = mp.solutions.pose
         with mp_pose.Pose(
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5,
             model_complexity=1
         ) as pose:
-            cap = None
-            consecutive_failures = 0
-
             while self.running:
                 if not self.enabled:
-                    # Release camera hardware while disabled so other apps (Zoom, Teams, etc.) have full access
-                    if cap is not None:
-                        cap.release()
-                        cap = None
-                    time.sleep(0.3)
+                    time.sleep(0.5)
                     continue
-
-                if cap is None:
-                    self.event_queue.put({
-                        "type": "camera_status",
-                        "status": "connecting",
-                        "message": "Connecting to webcam..."
-                    })
-                    cap = self._open_camera()
-                    if cap is None:
-                        self.event_queue.put({
-                            "type": "camera_status",
-                            "status": "unavailable",
-                            "message": "Webcam unavailable or in use by another app. Retrying..."
-                        })
-                        time.sleep(1.5)
-                        continue
-                    else:
-                        consecutive_failures = 0
-                        self.event_queue.put({
-                            "type": "camera_status",
-                            "status": "active",
-                            "message": "Webcam connected."
-                        })
 
                 ret, frame = cap.read()
-                if not ret or frame is None or frame.size == 0:
-                    consecutive_failures += 1
-                    if consecutive_failures > 20:  # ~2 seconds of dropped frames
-                        self.event_queue.put({
-                            "type": "camera_status",
-                            "status": "reconnecting",
-                            "message": "Webcam frame dropped. Reconnecting..."
-                        })
-                        if cap is not None:
-                            cap.release()
-                            cap = None
-                        time.sleep(1.0)
-                    else:
-                        time.sleep(0.08)
+                if not ret or frame is None:
+                    time.sleep(0.1)
                     continue
-
-                consecutive_failures = 0
 
                 # Headless MediaPipe Pose processing (zero cv2.imshow)
                 rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -315,8 +253,7 @@ class PostureMonitorWorker(threading.Thread):
 
                 time.sleep(0.08)  # ~12 FPS: Ultra-low CPU usage (<3%)
 
-            if cap is not None:
-                cap.release()
+        cap.release()
 
     def _handle_alert_timing(self, label: Optional[str], now: float):
         """
@@ -456,21 +393,12 @@ class WarningPopup(tk.Toplevel):
 class PostureGuardApp:
     """Main Desktop Control Window and System Tray Coordinator."""
 
-    def __init__(self, root: tk.Tk, start_in_background: bool = False, show_queue: Optional[queue.Queue] = None):
+    def __init__(self, root: tk.Tk, start_in_background: bool = False):
         self.root = root
-        self.show_queue = show_queue or queue.Queue()
         self.root.title("PostureGuard Desktop")
-        self.root.geometry("440x520")
+        self.root.geometry("440x440")
         self.root.resizable(False, False)
         self.root.configure(bg="#1E1E2E")
-
-        # Set window icon
-        icon_path = PROJECT_ROOT / "posture_icon.ico"
-        if icon_path.exists():
-            try:
-                self.root.iconbitmap(str(icon_path))
-            except Exception:
-                pass
 
         self.event_queue = queue.Queue()
         self.worker = PostureMonitorWorker(self.event_queue)
@@ -531,24 +459,10 @@ class PostureGuardApp:
             activebackground="#EBA0AC",
             relief="flat",
             padx=14,
-            pady=8,
+            pady=10,
             command=self.toggle_monitoring
         )
         self.btn_toggle.pack(fill="x", pady=4)
-
-        self.btn_calibrate = tk.Button(
-            btn_frame,
-            text="🎯 Calibrate Upright Baseline (3s)",
-            font=("Segoe UI", 10),
-            bg="#89B4FA",
-            fg="#11111B",
-            activebackground="#B4BEFE",
-            relief="flat",
-            padx=14,
-            pady=8,
-            command=self.trigger_calibration
-        )
-        self.btn_calibrate.pack(fill="x", pady=4)
 
         # Settings Section
         settings_card = tk.LabelFrame(content, text=" Preferences ", font=("Segoe UI", 10, "bold"), fg="#89B4FA", bg="#1E1E2E", padx=12, pady=10)
@@ -614,7 +528,6 @@ class PostureGuardApp:
         menu = pystray.Menu(
             pystray.MenuItem("Open PostureGuard", self.show_window, default=True),
             pystray.MenuItem("Toggle Monitoring", self.toggle_monitoring),
-            pystray.MenuItem("Calibrate Upright Baseline", self.trigger_calibration),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Exit", self.exit_app)
         )
@@ -622,20 +535,13 @@ class PostureGuardApp:
         threading.Thread(target=self.tray_icon.run, daemon=True).start()
 
     def _process_events(self):
-        """Reads worker telemetry, camera events, and external IPC show requests on main thread."""
+        """Reads worker telemetry and alert commands on the Tkinter main thread."""
         try:
-            # Check if an external launch requested restoring this window
-            while not self.show_queue.empty():
-                self.show_queue.get_nowait()
-                self.show_window()
-
             while not self.event_queue.empty():
                 evt = self.event_queue.get_nowait()
                 msg_type = evt.get("type")
 
                 if msg_type == "telemetry":
-                    if not self.worker.enabled:
-                        continue
                     posture = evt.get("posture", "Unknown")
                     conf = evt.get("confidence", 0.0) * 100
                     color_map = {
@@ -646,21 +552,10 @@ class PostureGuardApp:
                         "No Person Detected": "#6C7086"
                     }
                     col = color_map.get(posture, "#CDD6F4")
-                    display_text = f"Current Posture: {posture.replace('_', ' ').title()}"
-                    if posture != "No Person Detected":
-                        display_text += f" ({conf:.0f}%)"
-                    self.lbl_posture.config(text=display_text, fg=col)
-                elif msg_type == "camera_status":
-                    status = evt.get("status")
-                    message = evt.get("message", "")
-                    if status == "active":
-                        self.lbl_monitoring.config(text="🟢 Monitoring Active (Background)", fg="#A6E3A1")
-                    elif status == "connecting":
-                        self.lbl_monitoring.config(text="🟡 Connecting to Camera...", fg="#F9E2AF")
-                        self.lbl_posture.config(text="Current Posture: Connecting...", fg="#CDD6F4")
-                    elif status in ("unavailable", "error", "disconnected", "reconnecting"):
-                        self.lbl_monitoring.config(text="🔴 Camera Unavailable (Retrying...)", fg="#F38BA8")
-                        self.lbl_posture.config(text=f"Status: {message}", fg="#F38BA8")
+                    self.lbl_posture.config(
+                        text=f"Current Posture: {posture.replace('_', ' ').title()} ({conf:.0f}%)",
+                        fg=col
+                    )
                 elif msg_type == "show_alert":
                     self.popup.show_alert()
                 elif msg_type == "hide_alert":
@@ -691,18 +586,6 @@ class PostureGuardApp:
             self.popup.hide_alert()
             self.tray_icon.icon = self._create_tray_icon(active=False)
 
-    def trigger_calibration(self, icon=None, item=None):
-        """Triggers upright posture baseline calibration."""
-        if not self.worker.enabled:
-            messagebox.showinfo("PostureGuard", "Please enable monitoring before calibrating.")
-            return
-        self.worker.trigger_calibration()
-        messagebox.showinfo(
-            "Calibration Started",
-            "Sit upright in your natural ergonomic position for 3 seconds.\n"
-            "The system is capturing your baseline..."
-        )
-
     def on_toggle_startup(self):
         """Handles user clicking the Startup checkbox."""
         enabled = self.var_startup.get()
@@ -715,88 +598,24 @@ class PostureGuardApp:
         self.root.withdraw()
 
     def show_window(self, icon=None, item=None):
-        """Restores main window from tray and brings it to front."""
+        """Restores main window from tray."""
         self.root.deiconify()
         self.root.lift()
-        self.root.attributes("-topmost", True)
-        self.root.after_idle(self.root.attributes, "-topmost", False)
-        self.root.focus_force()
 
     def exit_app(self, icon=None, item=None):
         """Completely terminates background thread, tray icon, and app."""
         self.worker.stop()
         if hasattr(self, "tray_icon") and self.tray_icon:
             self.tray_icon.stop()
-        if SingleInstanceChecker._server_socket:
-            try:
-                SingleInstanceChecker._server_socket.close()
-                SingleInstanceChecker._server_socket = None
-            except Exception:
-                pass
         self.popup.destroy()
         self.root.destroy()
         sys.exit(0)
 
 
-SINGLE_INSTANCE_PORT = 48123
-
-
-class SingleInstanceChecker:
-    """Guarantees only one instance of PostureGuard runs at a time, preventing camera hardware lockups."""
-    _server_socket = None
-
-    @classmethod
-    def notify_existing_or_acquire(cls, on_show_callback) -> bool:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(0.5)
-        try:
-            sock.connect(('127.0.0.1', SINGLE_INSTANCE_PORT))
-            try:
-                sock.sendall(b"SHOW\n")
-            except Exception:
-                pass
-            sock.close()
-            return False  # Another instance is already active
-        except (ConnectionRefusedError, socket.timeout, OSError):
-            sock.close()
-
-        try:
-            cls._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            cls._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            cls._server_socket.bind(('127.0.0.1', SINGLE_INSTANCE_PORT))
-            cls._server_socket.listen(2)
-
-            def listen_loop():
-                while cls._server_socket:
-                    try:
-                        conn, _ = cls._server_socket.accept()
-                        data = conn.recv(64)
-                        if b"SHOW" in data:
-                            on_show_callback()
-                        conn.close()
-                    except Exception:
-                        break
-
-            threading.Thread(target=listen_loop, daemon=True, name="SingleInstanceListener").start()
-            return True
-        except Exception:
-            return True
-
-
 def main():
-    show_event_queue = queue.Queue()
-
-    def request_show():
-        show_event_queue.put(True)
-
-    is_primary = SingleInstanceChecker.notify_existing_or_acquire(request_show)
-    if not is_primary:
-        # Existing instance is already running; it has been signaled to show window.
-        sys.exit(0)
-
     start_background = "--background" in sys.argv
     root = tk.Tk()
-    app = PostureGuardApp(root, start_in_background=start_background, show_queue=show_event_queue)
+    app = PostureGuardApp(root, start_in_background=start_background)
     root.mainloop()
 
 
